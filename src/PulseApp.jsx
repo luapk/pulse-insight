@@ -16,7 +16,7 @@ OPERATING PRINCIPLES:
 
 PROCESS:
 - If proposition/audience/market missing, ask ONE focused question before searching.
-- Otherwise run minimum 5 web searches covering: platform-native trends, brand's recent output, top 3 competitors, cultural calendar 8-12 weeks ahead, creator ecosystem, brand-safety flags.
+- Otherwise run between 3 and 5 web searches (no more than 5 — you are time-constrained) covering: platform-native trends, top 2-3 competitors' recent output, cultural calendar 8-12 weeks ahead, creator ecosystem + brand-safety flags. Batch queries aggressively — one search can cover multiple topics.
 - Synthesise — do not paste search results.
 
 CRITICAL OUTPUT RULE:
@@ -293,7 +293,7 @@ export default function PulseApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
-          max_tokens: 8000,
+          max_tokens: 5000,
           system: SYSTEM_PROMPT,
           messages: newMessages.map(m => ({ 
             role: m.role, 
@@ -690,6 +690,71 @@ function DesignedBrief({ brief, searches }) {
   const [exporting, setExporting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [exportError, setExportError] = useState(null);
+  const [exportingDeck, setExportingDeck] = useState(false);
+  const [deckError, setDeckError] = useState(null);
+
+  // Selection state — one Set per selectable section
+  const [selections, setSelections] = useState({
+    trends: new Set(),
+    whitespace: new Set(),
+    calendar: new Set(),
+    creators: new Set(),
+    routes: new Set(),
+  });
+
+  const toggleSelection = (section, index) => {
+    setSelections(prev => {
+      const newSet = new Set(prev[section]);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return { ...prev, [section]: newSet };
+    });
+  };
+
+  const totalSelected =
+    selections.trends.size +
+    selections.whitespace.size +
+    selections.calendar.size +
+    selections.creators.size +
+    selections.routes.size;
+
+  const selectAll = () => {
+    setSelections({
+      trends: new Set((brief.trends || []).map((_, i) => i)),
+      whitespace: new Set((brief.whitespace || []).map((_, i) => i)),
+      calendar: new Set((brief.calendar || []).map((_, i) => i)),
+      creators: new Set((brief.creators || []).map((_, i) => i)),
+      routes: new Set(((brief.executional_starters?.routes) || []).map((_, i) => i)),
+    });
+  };
+
+  const clearAll = () => {
+    setSelections({
+      trends: new Set(),
+      whitespace: new Set(),
+      calendar: new Set(),
+      creators: new Set(),
+      routes: new Set(),
+    });
+  };
+
+  const handleExportDeck = async () => {
+    if (totalSelected === 0) return;
+    setExportingDeck(true);
+    setDeckError(null);
+    try {
+      const { generateDeck } = await import('./deckExport.js');
+      await generateDeck({ brief, selections });
+    } catch (err) {
+      console.error('Deck export failed:', err);
+      setDeckError(`Deck export failed: ${err?.message || 'unknown error'}`);
+    } finally {
+      setExportingDeck(false);
+    }
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(JSON.stringify(brief, null, 2));
@@ -862,17 +927,107 @@ function DesignedBrief({ brief, searches }) {
         <ExecutiveSummary summary={brief.executive_summary} confidence={brief.confidence} />
         <PlatformFitSection platforms={brief.platform_fit} />
         <TensionsSection tensions={brief.tensions} />
-        <TrendsSection trends={brief.trends} />
-        <WhitespaceSection whitespace={brief.whitespace} />
+        <TrendsSection trends={brief.trends} selected={selections.trends} onToggle={(i) => toggleSelection('trends', i)} />
+        <WhitespaceSection whitespace={brief.whitespace} selected={selections.whitespace} onToggle={(i) => toggleSelection('whitespace', i)} />
         <CompetitiveReadSection read={brief.competitive_read} brand={brief.brand} />
-        <CalendarSection calendar={brief.calendar} />
-        <CreatorsSection creators={brief.creators} />
-        <ExecutionalStartersSection starters={brief.executional_starters} />
+        <CalendarSection calendar={brief.calendar} selected={selections.calendar} onToggle={(i) => toggleSelection('calendar', i)} />
+        <CreatorsSection creators={brief.creators} selected={selections.creators} onToggle={(i) => toggleSelection('creators', i)} />
+        <ExecutionalStartersSection starters={brief.executional_starters} selected={selections.routes} onToggle={(i) => toggleSelection('routes', i)} />
         <MovesSection moves={brief.this_weeks_moves} />
         <DoNotSection items={brief.do_not} />
         <UnexpectedSection unexpected={brief.the_unexpected} />
         <BriefFooter brief={brief} />
       </div>
+
+      {deckError && (
+        <div className="mt-4 rounded-xl p-4 border border-red-200 flex items-start gap-3" style={{
+          background: 'rgba(254, 226, 226, 0.6)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)'
+        }}>
+          <AlertCircle className="w-5 h-5 text-red-700 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 text-sm text-red-800" style={{ fontFamily: '"Inter", sans-serif' }}>
+            {deckError}
+          </div>
+          <button
+            onClick={() => setDeckError(null)}
+            className="text-xs text-red-600 hover:text-red-800"
+            style={{ fontFamily: '"JetBrains Mono", monospace' }}
+          >
+            dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Floating deck selection bar — appears when selections exist */}
+      {totalSelected > 0 && (
+        <div className="sticky bottom-6 mt-6 z-20 fade-in-up">
+          <div className="rounded-2xl border-2 p-4 flex items-center justify-between flex-wrap gap-3" style={{
+            background: 'rgba(28, 25, 23, 0.95)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            borderColor: 'rgba(255, 212, 168, 0.4)',
+            boxShadow: '0 16px 48px rgba(28, 25, 23, 0.3), 0 0 0 4px rgba(255, 255, 255, 0.4)'
+          }}>
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl text-white" style={{ fontFamily: '"Instrument Serif", Georgia, serif', fontStyle: 'italic' }}>
+                  {totalSelected}
+                </span>
+                <span className="text-xs tracking-[0.2em] uppercase text-stone-400" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                  selected
+                </span>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-stone-300 flex-wrap" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                {selections.trends.size > 0 && <span className="px-2 py-0.5 rounded bg-stone-700">{selections.trends.size} trends</span>}
+                {selections.whitespace.size > 0 && <span className="px-2 py-0.5 rounded bg-stone-700">{selections.whitespace.size} whitespace</span>}
+                {selections.calendar.size > 0 && <span className="px-2 py-0.5 rounded bg-stone-700">{selections.calendar.size} moments</span>}
+                {selections.creators.size > 0 && <span className="px-2 py-0.5 rounded bg-stone-700">{selections.creators.size} creators</span>}
+                {selections.routes.size > 0 && <span className="px-2 py-0.5 rounded bg-stone-700">{selections.routes.size} routes</span>}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={selectAll}
+                className="text-xs px-3 py-2 rounded-lg text-stone-300 hover:text-white hover:bg-stone-800 transition-colors"
+                style={{ fontFamily: '"JetBrains Mono", monospace' }}
+              >
+                select all
+              </button>
+              <button
+                onClick={clearAll}
+                className="text-xs px-3 py-2 rounded-lg text-stone-300 hover:text-white hover:bg-stone-800 transition-colors"
+                style={{ fontFamily: '"JetBrains Mono", monospace' }}
+              >
+                clear
+              </button>
+              <button
+                onClick={handleExportDeck}
+                disabled={exportingDeck}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60 disabled:cursor-wait"
+                style={{
+                  background: 'linear-gradient(135deg, #ffd4a8, #ffc8e0)',
+                  color: '#1c1917',
+                  fontFamily: '"Inter", sans-serif',
+                  boxShadow: '0 4px 16px rgba(255, 212, 168, 0.3)'
+                }}
+              >
+                {exportingDeck ? (
+                  <>
+                    <span className="inline-block w-3.5 h-3.5 border-2 border-stone-900/30 border-t-stone-900 rounded-full animate-spin" />
+                    Building deck...
+                  </>
+                ) : (
+                  <>
+                    <FileText className="w-4 h-4" />
+                    Export deck
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1137,8 +1292,36 @@ function TensionsSection({ tensions }) {
   );
 }
 
+// ============ SELECT CHECKBOX ============
+function SelectCheckbox({ isSelected, onClick, label = 'Include in deck' }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="flex items-center gap-2 px-2.5 py-1 rounded-md transition-all hover:scale-[1.02] active:scale-95"
+      style={{
+        background: isSelected ? 'rgba(28, 25, 23, 0.92)' : 'rgba(255, 255, 255, 0.65)',
+        border: `1px solid ${isSelected ? '#1c1917' : 'rgba(168, 162, 158, 0.4)'}`,
+        color: isSelected ? '#ffffff' : '#78716c',
+        fontFamily: '"JetBrains Mono", monospace',
+        fontSize: '10px',
+        letterSpacing: '0.08em',
+        textTransform: 'uppercase',
+      }}
+      title={isSelected ? 'Remove from deck' : 'Add to deck'}
+    >
+      <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm" style={{
+        background: isSelected ? '#ffffff' : 'transparent',
+        border: `1px solid ${isSelected ? '#ffffff' : 'rgba(168, 162, 158, 0.6)'}`,
+      }}>
+        {isSelected && <Check className="w-2.5 h-2.5" style={{ color: '#1c1917' }} strokeWidth={3} />}
+      </span>
+      <span>{isSelected ? 'In deck' : label}</span>
+    </button>
+  );
+}
+
 // ============ TRENDS ============
-function TrendsSection({ trends }) {
+function TrendsSection({ trends, selected, onToggle }) {
   if (!trends?.length) return null;
 
   const velocityConfig = {
@@ -1154,9 +1337,11 @@ function TrendsSection({ trends }) {
       <div className="space-y-4">
         {trends.map((t, i) => {
           const v = velocityConfig[t.velocity] || velocityConfig.RISING;
+          const isSelected = selected?.has(i);
           return (
-            <div key={i} className="rounded-xl border border-white/60 overflow-hidden fade-in-up" style={{
-              background: 'rgba(255,255,255,0.55)',
+            <div key={i} className="rounded-xl border overflow-hidden fade-in-up transition-all" style={{
+              background: isSelected ? 'rgba(255, 248, 225, 0.75)' : 'rgba(255,255,255,0.55)',
+              borderColor: isSelected ? 'rgba(28, 25, 23, 0.3)' : 'rgba(255,255,255,0.6)',
               animationDelay: `${i * 0.08}s`
             }}>
               <div className="px-5 py-3 border-b border-stone-200/50 flex items-center justify-between flex-wrap gap-2" style={{
@@ -1177,6 +1362,7 @@ function TrendsSection({ trends }) {
                   <span className="text-xs text-stone-500" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
                     ~{t.decay_weeks}w to saturate
                   </span>
+                  {onToggle && <SelectCheckbox isSelected={isSelected} onClick={() => onToggle(i)} />}
                 </div>
               </div>
               
@@ -1226,31 +1412,38 @@ function TrendsSection({ trends }) {
 }
 
 // ============ WHITESPACE ============
-function WhitespaceSection({ whitespace }) {
+function WhitespaceSection({ whitespace, selected, onToggle }) {
   if (!whitespace?.length) return null;
   return (
     <div className="px-8 py-8 border-b border-stone-200/60">
       <SectionLabel icon={<Target className="w-3 h-3" />} label="Whitespace" />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {whitespace.map((w, i) => (
-          <div key={i} className="rounded-xl p-5 border-2 border-dashed border-stone-300 fade-in-up" style={{ 
-            background: 'rgba(255,255,255,0.4)',
-            animationDelay: `${i * 0.1}s`
-          }}>
-            <div className="text-xs tracking-[0.2em] uppercase text-stone-500 mb-2" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
-              Open territory
+        {whitespace.map((w, i) => {
+          const isSelected = selected?.has(i);
+          return (
+            <div key={i} className="rounded-xl p-5 border-2 border-dashed fade-in-up transition-all" style={{ 
+              background: isSelected ? 'rgba(255, 248, 225, 0.75)' : 'rgba(255,255,255,0.4)',
+              borderColor: isSelected ? 'rgba(28, 25, 23, 0.4)' : '#d6d3d1',
+              animationDelay: `${i * 0.1}s`
+            }}>
+              <div className="flex items-start justify-between mb-2 gap-2">
+                <div className="text-xs tracking-[0.2em] uppercase text-stone-500" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                  Open territory
+                </div>
+                {onToggle && <SelectCheckbox isSelected={isSelected} onClick={() => onToggle(i)} />}
+              </div>
+              <div className="text-lg text-stone-900 mb-2" style={{ fontFamily: '"Instrument Serif", Georgia, serif', fontStyle: 'italic' }}>
+                {w.space}
+              </div>
+              <div className="text-xs text-stone-600 mb-3 italic" style={{ fontFamily: '"Inter", sans-serif' }}>
+                Why it's empty: {w.why_empty}
+              </div>
+              <div className="text-sm text-stone-800 leading-relaxed" style={{ fontFamily: '"Inter", sans-serif' }}>
+                {w.opportunity}
+              </div>
             </div>
-            <div className="text-lg text-stone-900 mb-2" style={{ fontFamily: '"Instrument Serif", Georgia, serif', fontStyle: 'italic' }}>
-              {w.space}
-            </div>
-            <div className="text-xs text-stone-600 mb-3 italic" style={{ fontFamily: '"Inter", sans-serif' }}>
-              Why it's empty: {w.why_empty}
-            </div>
-            <div className="text-sm text-stone-800 leading-relaxed" style={{ fontFamily: '"Inter", sans-serif' }}>
-              {w.opportunity}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -1295,7 +1488,7 @@ function CompetitiveReadSection({ read, brand }) {
 }
 
 // ============ CALENDAR ============
-function CalendarSection({ calendar }) {
+function CalendarSection({ calendar, selected, onToggle }) {
   if (!calendar?.length) return null;
   
   const categoryColors = {
@@ -1349,101 +1542,113 @@ function CalendarSection({ calendar }) {
 
       {/* Event cards */}
       <div className="space-y-3">
-        {calendar.map((e, i) => (
-          <div key={i} className="rounded-xl border border-white/60 p-4 fade-in-up" style={{ 
-            background: 'rgba(255,255,255,0.55)',
-            animationDelay: `${i * 0.08}s`
-          }}>
-            <div className="flex items-start justify-between flex-wrap gap-2 mb-2">
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="text-lg font-semibold text-stone-900" style={{ fontFamily: '"Inter", sans-serif' }}>
-                  {e.event}
+        {calendar.map((e, i) => {
+          const isSelected = selected?.has(i);
+          return (
+            <div key={i} className="rounded-xl border p-4 fade-in-up transition-all" style={{ 
+              background: isSelected ? 'rgba(255, 248, 225, 0.75)' : 'rgba(255,255,255,0.55)',
+              borderColor: isSelected ? 'rgba(28, 25, 23, 0.3)' : 'rgba(255,255,255,0.6)',
+              animationDelay: `${i * 0.08}s`
+            }}>
+              <div className="flex items-start justify-between flex-wrap gap-2 mb-2">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="text-lg font-semibold text-stone-900" style={{ fontFamily: '"Inter", sans-serif' }}>
+                    {e.event}
+                  </div>
+                  <div className="text-xs px-2 py-0.5 rounded-full" style={{ 
+                    background: (categoryColors[e.category] || '#78716c') + '20',
+                    color: categoryColors[e.category] || '#78716c',
+                    fontFamily: '"JetBrains Mono", monospace'
+                  }}>
+                    {e.category}
+                  </div>
+                  <div className="text-xs text-stone-500" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                    {e.date} · {e.days_away} days away
+                  </div>
                 </div>
-                <div className="text-xs px-2 py-0.5 rounded-full" style={{ 
-                  background: (categoryColors[e.category] || '#78716c') + '20',
-                  color: categoryColors[e.category] || '#78716c',
-                  fontFamily: '"JetBrains Mono", monospace'
-                }}>
-                  {e.category}
-                </div>
-                <div className="text-xs text-stone-500" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
-                  {e.date} · {e.days_away} days away
+                <div className="flex items-center gap-2">
+                  {e.too_late && (
+                    <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 font-medium" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                      TOO LATE
+                    </span>
+                  )}
+                  {onToggle && <SelectCheckbox isSelected={isSelected} onClick={() => onToggle(i)} />}
                 </div>
               </div>
-              {e.too_late && (
-                <span className="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700 font-medium" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
-                  TOO LATE
-                </span>
-              )}
+              <div className="text-sm text-stone-600 mb-2" style={{ fontFamily: '"Inter", sans-serif', fontWeight: 300 }}>
+                <span className="font-medium text-stone-800">Why it matters:</span> {e.why_matters}
+              </div>
+              <div className="text-sm text-stone-700 mb-2 p-3 rounded-lg bg-stone-50/80" style={{ fontFamily: '"Inter", sans-serif' }}>
+                <span className="text-xs tracking-wider uppercase text-stone-500" style={{ fontFamily: '"JetBrains Mono", monospace' }}>Execution</span>
+                <div className="mt-1">{e.execution_idea}</div>
+              </div>
+              <div className="text-xs text-stone-500" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                Lead time needed: {e.lead_time_weeks} weeks
+              </div>
             </div>
-            <div className="text-sm text-stone-600 mb-2" style={{ fontFamily: '"Inter", sans-serif', fontWeight: 300 }}>
-              <span className="font-medium text-stone-800">Why it matters:</span> {e.why_matters}
-            </div>
-            <div className="text-sm text-stone-700 mb-2 p-3 rounded-lg bg-stone-50/80" style={{ fontFamily: '"Inter", sans-serif' }}>
-              <span className="text-xs tracking-wider uppercase text-stone-500" style={{ fontFamily: '"JetBrains Mono", monospace' }}>Execution</span>
-              <div className="mt-1">{e.execution_idea}</div>
-            </div>
-            <div className="text-xs text-stone-500" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
-              Lead time needed: {e.lead_time_weeks} weeks
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
 // ============ CREATORS ============
-function CreatorsSection({ creators }) {
+function CreatorsSection({ creators, selected, onToggle }) {
   if (!creators?.length) return null;
   return (
     <div className="px-8 py-8 border-b border-stone-200/60">
       <SectionLabel icon={<Users className="w-3 h-3" />} label="Rising creators" />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {creators.map((c, i) => (
-          <div key={i} className="rounded-xl p-5 border border-white/60 fade-in-up" style={{ 
-            background: 'rgba(255,255,255,0.55)',
-            animationDelay: `${i * 0.08}s`
-          }}>
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <div className="text-lg font-semibold mb-1" style={{ color: '#7c3aed', fontFamily: '"Inter", sans-serif' }}>
-                  {c.handle}
+        {creators.map((c, i) => {
+          const isSelected = selected?.has(i);
+          return (
+            <div key={i} className="rounded-xl p-5 border fade-in-up transition-all" style={{ 
+              background: isSelected ? 'rgba(255, 248, 225, 0.75)' : 'rgba(255,255,255,0.55)',
+              borderColor: isSelected ? 'rgba(28, 25, 23, 0.3)' : 'rgba(255,255,255,0.6)',
+              animationDelay: `${i * 0.08}s`
+            }}>
+              <div className="flex items-start justify-between mb-3 gap-2">
+                <div>
+                  <div className="text-lg font-semibold mb-1" style={{ color: '#7c3aed', fontFamily: '"Inter", sans-serif' }}>
+                    {c.handle}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-stone-500" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                    <span>{c.platform}</span>
+                    <span>·</span>
+                    <span>{c.followers}</span>
+                    {c.growth_30d && (
+                      <>
+                        <span>·</span>
+                        <span className="text-green-700 font-medium flex items-center gap-0.5">
+                          <ArrowUpRight className="w-3 h-3" />{c.growth_30d}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-stone-500" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
-                  <span>{c.platform}</span>
-                  <span>·</span>
-                  <span>{c.followers}</span>
-                  {c.growth_30d && (
-                    <>
-                      <span>·</span>
-                      <span className="text-green-700 font-medium flex items-center gap-0.5">
-                        <ArrowUpRight className="w-3 h-3" />{c.growth_30d}
-                      </span>
-                    </>
-                  )}
-                </div>
+                {onToggle && <SelectCheckbox isSelected={isSelected} onClick={() => onToggle(i)} />}
               </div>
+              <div className="text-xs text-stone-500 tracking-wider uppercase mb-1" style={{ fontFamily: '"JetBrains Mono", monospace' }}>Relevance</div>
+              <div className="text-sm text-stone-700 mb-3" style={{ fontFamily: '"Inter", sans-serif' }}>{c.relevance}</div>
+              <div className="text-xs text-stone-500 tracking-wider uppercase mb-1" style={{ fontFamily: '"JetBrains Mono", monospace' }}>Collab idea</div>
+              <div className="text-sm text-stone-800 font-medium mb-3" style={{ fontFamily: '"Inter", sans-serif' }}>{c.collab_idea}</div>
+              {c.safety_note && (
+                <div className="flex items-start gap-2 text-xs text-stone-500 pt-3 border-t border-stone-200/60">
+                  <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                  <span style={{ fontFamily: '"Inter", sans-serif' }}>{c.safety_note}</span>
+                </div>
+              )}
             </div>
-            <div className="text-xs text-stone-500 tracking-wider uppercase mb-1" style={{ fontFamily: '"JetBrains Mono", monospace' }}>Relevance</div>
-            <div className="text-sm text-stone-700 mb-3" style={{ fontFamily: '"Inter", sans-serif' }}>{c.relevance}</div>
-            <div className="text-xs text-stone-500 tracking-wider uppercase mb-1" style={{ fontFamily: '"JetBrains Mono", monospace' }}>Collab idea</div>
-            <div className="text-sm text-stone-800 font-medium mb-3" style={{ fontFamily: '"Inter", sans-serif' }}>{c.collab_idea}</div>
-            {c.safety_note && (
-              <div className="flex items-start gap-2 text-xs text-stone-500 pt-3 border-t border-stone-200/60">
-                <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                <span style={{ fontFamily: '"Inter", sans-serif' }}>{c.safety_note}</span>
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
 // ============ EXECUTIONAL STARTERS — CRAFT GRADE ============
-function ExecutionalStartersSection({ starters }) {
+function ExecutionalStartersSection({ starters, selected, onToggle }) {
   if (!starters?.routes?.length) return null;
   
   const platformColors = {
@@ -1464,34 +1669,38 @@ function ExecutionalStartersSection({ starters }) {
       )}
 
       <div className="space-y-4">
-        {starters.routes.map((route, i) => (
-          <div key={i} className="rounded-xl border border-white/60 overflow-hidden fade-in-up" style={{ 
-            background: 'rgba(255,255,255,0.6)',
-            animationDelay: `${i * 0.1}s`
-          }}>
-            <div className="px-5 py-3 border-b border-stone-200/50 flex items-center justify-between flex-wrap gap-2" style={{
-              background: 'linear-gradient(90deg, rgba(232,253,245,0.5), rgba(255,255,255,0.4))'
+        {starters.routes.map((route, i) => {
+          const isSelected = selected?.has(i);
+          return (
+            <div key={i} className="rounded-xl border overflow-hidden fade-in-up transition-all" style={{ 
+              background: isSelected ? 'rgba(255, 248, 225, 0.85)' : 'rgba(255,255,255,0.6)',
+              borderColor: isSelected ? 'rgba(28, 25, 23, 0.35)' : 'rgba(255,255,255,0.6)',
+              animationDelay: `${i * 0.1}s`
             }}>
-              <div className="flex items-center gap-3">
-                <div className="text-xs tracking-[0.2em] uppercase text-stone-500" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
-                  Route {String(i + 1).padStart(2, '0')}
+              <div className="px-5 py-3 border-b border-stone-200/50 flex items-center justify-between flex-wrap gap-2" style={{
+                background: 'linear-gradient(90deg, rgba(232,253,245,0.5), rgba(255,255,255,0.4))'
+              }}>
+                <div className="flex items-center gap-3">
+                  <div className="text-xs tracking-[0.2em] uppercase text-stone-500" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                    Route {String(i + 1).padStart(2, '0')}
+                  </div>
+                  <div className="text-base text-stone-900" style={{ fontFamily: '"Instrument Serif", Georgia, serif', fontStyle: 'italic' }}>
+                    {route.route_name}
+                  </div>
                 </div>
-                <div className="text-base text-stone-900" style={{ fontFamily: '"Instrument Serif", Georgia, serif', fontStyle: 'italic' }}>
-                  {route.route_name}
+                <div className="flex items-center gap-2">
+                  {route.platform && (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ 
+                      background: (platformColors[route.platform] || '#78716c') + '20',
+                      color: platformColors[route.platform] || '#78716c',
+                      fontFamily: '"JetBrains Mono", monospace'
+                    }}>
+                      {route.platform}
+                    </span>
+                  )}
+                  {onToggle && <SelectCheckbox isSelected={isSelected} onClick={() => onToggle(i)} />}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {route.platform && (
-                  <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ 
-                    background: (platformColors[route.platform] || '#78716c') + '20',
-                    color: platformColors[route.platform] || '#78716c',
-                    fontFamily: '"JetBrains Mono", monospace'
-                  }}>
-                    {route.platform}
-                  </span>
-                )}
-              </div>
-            </div>
             
             <div className="p-5">
               {route.trend_used && (
@@ -1542,7 +1751,8 @@ function ExecutionalStartersSection({ starters }) {
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

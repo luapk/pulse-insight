@@ -29,6 +29,7 @@ Replace `YOUR_USERNAME` with your GitHub username after pushing this repo.
 - **Executional Starters** — D&AD/Cannes-standard routes with rationales
 - **This Week's Moves** — tactical actions with owners and time estimates
 - **PDF Export** — designed one-pager you can drop into a deck
+- **PowerPoint Export** — tick the ideas, trends, creators and routes you want, hit Export Deck, and get a designed .pptx you can present to clients
 
 ---
 
