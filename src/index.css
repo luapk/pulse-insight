@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  color: #1c1917;
+}
+
+textarea::-webkit-scrollbar { width: 4px; }
+textarea::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 2px; }
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer-text {
+  background: linear-gradient(90deg, #78716c 0%, #1c1917 50%, #78716c 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2.5s infinite linear;
+}
+
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.count-up { animation: countUp 0.6s ease-out forwards; }
+
+@keyframes fillBar {
+  from { width: 0; }
+}
+.fill-bar { animation: fillBar 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in-up { animation: fadeInUp 0.5s ease-out both; }
