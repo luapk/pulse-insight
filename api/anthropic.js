@@ -1,31 +1,37 @@
-// Vercel serverless function (Node runtime) — proxies the Anthropic API so the key stays server-side.
-// Set ANTHROPIC_API_KEY in Vercel project environment variables.
+// Streaming Edge Function — proxies the Anthropic API with streaming enabled.
+// Streaming keeps the connection alive through token-by-token output, bypassing
+// Vercel's idle timeout limits. Works on Vercel Hobby plan.
 //
-// Timeout notes:
-// - Vercel Hobby plan: 60s max (configured below)
-// - Vercel Pro plan: up to 300s — change maxDuration to 300 if you upgrade
-//
-// If you still hit 504s on Hobby:
-// 1. Upgrade to Vercel Pro ($20/month) and bump maxDuration to 300, OR
-// 2. Ask for a streaming implementation (keeps the connection alive past timeouts)
+// The browser receives a live SSE stream it can parse progressively.
 
 export const config = {
-  maxDuration: 60,
+  runtime: 'edge',
 };
 
-export default async function handler(req, res) {
+export default async function handler(req) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({
-      error: 'Server misconfigured: ANTHROPIC_API_KEY environment variable is missing.',
-    });
+    return new Response(
+      JSON.stringify({
+        error: 'Server misconfigured: ANTHROPIC_API_KEY environment variable is missing.',
+      }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 
   try {
+    const body = await req.json();
+
+    // Force streaming on — this is what keeps the connection alive
+    const streamingBody = { ...body, stream: true };
+
     const upstream = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -33,17 +39,32 @@ export default async function handler(req, res) {
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify(req.body),
+      body: JSON.stringify(streamingBody),
     });
 
-    const data = await upstream.text();
-    res.status(upstream.status);
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Cache-Control', 'no-store');
-    return res.send(data);
-  } catch (err) {
-    return res.status(500).json({
-      error: err?.message || 'Unknown error proxying to Anthropic.',
+    // If upstream errored, forward the error response as-is
+    if (!upstream.ok) {
+      const errText = await upstream.text();
+      return new Response(errText, {
+        status: upstream.status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Stream the SSE response straight to the browser
+    return new Response(upstream.body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      },
     });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: err?.message || 'Unknown error proxying to Anthropic.' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 }

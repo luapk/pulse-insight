@@ -270,22 +270,19 @@ export default function PulseApp() {
     setMessages(newMessages);
     setInput('');
     setLoading(true);
-    setLoadingStage('Reading the brief...');
+    setLoadingStage('Connecting...');
 
-    const stages = [
+    // Initial rotation for the first few seconds before streaming events arrive
+    const initialStages = [
+      'Connecting...',
       'Reading the brief...',
-      'Scanning platform-native trends...',
-      'Checking competitor posture...',
-      'Mapping cultural calendar...',
-      'Flagging brand-safety signals...',
-      'Crafting executional routes...',
-      'Synthesising the read...'
+      'Planning searches...',
     ];
     let stageIndex = 0;
     const stageInterval = setInterval(() => {
-      stageIndex = (stageIndex + 1) % stages.length;
-      setLoadingStage(stages[stageIndex]);
-    }, 3500);
+      stageIndex = (stageIndex + 1) % initialStages.length;
+      setLoadingStage(initialStages[stageIndex]);
+    }, 2000);
 
     try {
       const response = await fetch('/api/anthropic', {
@@ -308,25 +305,85 @@ export default function PulseApp() {
         throw new Error(`API error ${response.status}: ${errText.slice(0, 200)}`);
       }
 
-      const data = await response.json();
-      
-      const fullResponse = (data.content || [])
-        .filter(item => item.type === 'text')
-        .map(item => item.text)
-        .join('\n\n');
+      // Parse streaming SSE response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let accumulatedText = '';
+      let searchCount = 0;
+      let lastProgressUpdate = Date.now();
+      let streamStarted = false;
 
-      const searchCount = (data.content || [])
-        .filter(item => item.type === 'server_tool_use')
-        .length;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      // Bulletproof JSON extraction
-      const parsed = extractJSON(fullResponse);
+        // First byte received — kill the initial rotation
+        if (!streamStarted) {
+          streamStarted = true;
+          clearInterval(stageInterval);
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE events end with \n\n — split on that
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || ''; // keep incomplete event in buffer
+
+        for (const event of events) {
+          if (!event.trim()) continue;
+
+          // Parse event lines
+          const lines = event.split('\n');
+          let eventType = '';
+          let eventData = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+            else if (line.startsWith('data: ')) eventData = line.slice(6).trim();
+          }
+
+          if (!eventData) continue;
+
+          try {
+            const parsed = JSON.parse(eventData);
+
+            if (eventType === 'content_block_start') {
+              if (parsed.content_block?.type === 'server_tool_use') {
+                searchCount++;
+                setLoadingStage(`Running search ${searchCount}...`);
+              } else if (parsed.content_block?.type === 'text') {
+                setLoadingStage('Writing the brief...');
+              }
+            } else if (eventType === 'content_block_delta') {
+              if (parsed.delta?.type === 'text_delta') {
+                accumulatedText += parsed.delta.text || '';
+                // Update loading stage periodically to show progress
+                if (Date.now() - lastProgressUpdate > 1500) {
+                  const charCount = accumulatedText.length;
+                  setLoadingStage(`Writing brief · ${charCount.toLocaleString()} chars so far...`);
+                  lastProgressUpdate = Date.now();
+                }
+              }
+            } else if (eventType === 'message_stop' || parsed.type === 'message_stop') {
+              setLoadingStage('Rendering designed brief...');
+            } else if (eventType === 'error') {
+              throw new Error(parsed.error?.message || 'Stream error');
+            }
+          } catch (parseErr) {
+            // Malformed event — skip silently unless it's our thrown error
+            if (parseErr.message.includes('Stream error')) throw parseErr;
+          }
+        }
+      }
+
+      // Bulletproof JSON extraction from accumulated text
+      const parsed = extractJSON(accumulatedText);
 
       setMessages([...newMessages, { 
         role: 'assistant', 
-        content: parsed || fullResponse,
+        content: parsed || accumulatedText,
         parsed: !!parsed,
-        rawResponse: fullResponse,
+        rawResponse: accumulatedText,
         searches: searchCount
       }]);
     } catch (error) {
@@ -587,8 +644,9 @@ function LoadingPanel({ stage }) {
           <div className="shimmer-text text-lg" style={{ fontFamily: '"Instrument Serif", Georgia, serif', fontStyle: 'italic' }}>
             {stage}
           </div>
-          <div className="text-xs text-stone-500 mt-1 tracking-wider uppercase" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
-            Running live searches · 45-90s typical
+          <div className="text-xs text-stone-500 mt-1 tracking-wider uppercase flex items-center gap-2" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            Streaming · brief renders when complete
           </div>
         </div>
       </div>

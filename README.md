@@ -97,18 +97,21 @@ In the Vercel dashboard, go to **Settings → Domains** and add your domain. Ver
 ### Architecture
 
 ```
-┌─────────────────────┐      ┌──────────────────────┐      ┌─────────────────┐
-│  React app (Vite)   │─────▶│ /api/anthropic       │─────▶│  Anthropic API  │
-│  PulseApp.jsx       │◀─────│ Vercel Edge Function │◀─────│  Claude Sonnet 4│
-└─────────────────────┘      └──────────────────────┘      └─────────────────┘
-         │                             │
-         │                             └─ Uses ANTHROPIC_API_KEY env var
-         │                                (never exposed to browser)
+┌─────────────────────┐  stream  ┌──────────────────────┐  stream  ┌─────────────────┐
+│  React app (Vite)   │◀─────────│ /api/anthropic       │◀─────────│  Anthropic API  │
+│  PulseApp.jsx       │  SSE     │ Vercel Edge Function │  SSE     │  Claude Sonnet 4│
+└─────────────────────┘          └──────────────────────┘          └─────────────────┘
+         │                                  │
+         │                                  └─ Uses ANTHROPIC_API_KEY env var
+         │                                     (never exposed to browser)
          │
-         └─ Renders structured JSON response as designed infographic
+         └─ Streams SSE events, accumulates text, parses as JSON on completion,
+            renders as designed infographic
 ```
 
 The frontend never sees your API key. All requests go through the Vercel Edge Function at `/api/anthropic`, which adds the key server-side and proxies to Anthropic.
+
+**Streaming, not buffering.** The Edge Function passes through the Anthropic streaming SSE response as it arrives. This is deliberate — it keeps the HTTP connection alive during long briefs (which can run 60-90s), bypassing Vercel's idle timeout. You'll see live progress updates while Claude works: "Running search 1...", "Running search 2...", "Writing brief · 1,240 chars so far...".
 
 ### The PULSE system prompt
 
@@ -196,7 +199,7 @@ The `SYSTEM_PROMPT` constant (top of `PulseApp.jsx`) is verbose by design — it
 
 ## Known limitations
 
-- **Web search latency** — briefs take 45–90 seconds typical, occasionally longer. The Edge Function has a 300-second timeout.
+- **Brief generation time** — briefs take 45–90 seconds typical. The app streams the response live from the API so Vercel's idle timeout doesn't apply — the connection stays alive throughout. You'll see progress updates ("Running search 3...", "Writing brief · 1,240 chars so far...") while it works.
 - **PDF capture** — glass morphism doesn't print; the PDF substitutes solid white backgrounds (which actually reads better on paper).
 - **Single-user** — no auth, no history. Every session starts fresh. If you need multi-user or saved briefs, add a database layer (Supabase/Neon work well with Vercel).
 
