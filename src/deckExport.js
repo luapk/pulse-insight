@@ -6,26 +6,26 @@ import PptxGenJS from 'pptxgenjs';
 // Design tokens — aligned with the app's glass aesthetic but tuned for print/presentation
 const TOKENS = {
   colors: {
-    ink: '1A1A1A',
+    ink: '0F0A28',
     paper: 'FFFFFF',
-    cream: 'FEF3E8',
-    peach: 'FFD4A8',
-    pink: 'FFC8E0',
-    blue: 'B8E0FF',
-    mint: 'E8FDF5',
-    stone900: '1C1917',
-    stone700: '44403C',
-    stone500: '78716C',
-    stone300: 'D6D3D1',
-    stone200: 'E7E5E4',
-    stone100: 'F5F5F4',
-    accent_read: 'EA580C',
-    accent_move: '0891B2',
+    cream: 'F5F3FF',       // very pale violet (was peach-cream)
+    peach: 'A78BFA',       // violet (kept var name for minimal refactor)
+    pink: '818CF8',        // indigo
+    blue: '3B82F6',        // electric blue
+    mint: 'E0E7FF',        // pale indigo
+    stone900: '0F0A28',
+    stone700: '312E81',
+    stone500: '6366F1',
+    stone300: 'C7D2FE',
+    stone200: 'E0E7FF',
+    stone100: 'EEF2FF',
+    accent_read: '8B5CF6',      // violet (was orange)
+    accent_move: '3B82F6',      // blue (kept, just shifted)
     accent_risk: 'DC2626',
-    accent_tiktok: 'FF0050',
-    accent_instagram: 'E1306C',
-    accent_youtube: 'FF0000',
-    accent_x: '1C1917',
+    accent_tiktok: 'A78BFA',
+    accent_instagram: 'F0ABFC',
+    accent_youtube: 'FCA5A5',
+    accent_x: '4F46E5',
   },
   fonts: {
     display: 'Georgia',      // stand-in for Instrument Serif
